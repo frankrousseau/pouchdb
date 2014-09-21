@@ -492,9 +492,19 @@ adapters.forEach(function (adapter) {
         '_replication_stats': {}
       };
       var db = new PouchDB(dbs.name);
-      db.post(doc, function (err, res) {
+      db.post(doc, function (err, resp) {
         should.not.exist(err);
-        done();
+
+        db.get(resp.id, function (err, doc2) {
+          should.not.exist(err);
+
+          doc2._replication_id.should.equal('test');
+          doc2._replication_state.should.equal('triggered');
+          doc2._replication_state_time.should.equal(1);
+          doc2._replication_stats.should.eql({});
+
+          done();
+        });
       });
     });
 
@@ -744,6 +754,26 @@ adapters.forEach(function (adapter) {
         info.db_name.should.equal('testdb');
         done();
       });
+    });
+
+    it('db.info should give auto_compaction = false (#2744)', function (done) {
+      var db = new PouchDB(dbs.name, { auto_compaction: false});
+      db.info().then(function (info) {
+        info.auto_compaction.should.equal(false);
+        done();
+      });
+    });
+
+    it('db.info should give auto_compaction = true (#2744)', function (done) {
+      if (dbs.name === 'test.basics.js-local') {
+        var db = new PouchDB(dbs.name, { auto_compaction: true});
+        db.info().then(function (info) {
+          info.auto_compaction.should.equal(true);
+          done();
+        });
+      } else {
+        done();
+      }
     });
 
     it('db.info should give correct doc_count', function (done) {

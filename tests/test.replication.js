@@ -925,7 +925,7 @@ adapters.forEach(function (adapters) {
       });
     });
 
-    it('Replication with filter that leads to some empty batches',
+    it('Replication with filter that leads to some empty batches (#2689)',
        function (done) {
       var db = new PouchDB(dbs.name);
       var remote = new PouchDB(dbs.remote);
@@ -948,8 +948,8 @@ adapters.forEach(function (adapters) {
               if (err) { done(err); }
               docs.rows.length.should.equal(3);
               db.info(function (err, info) {
-                info.update_seq.should.equal(6);
-                info.doc_count.should.equal(6);
+                info.update_seq.should.equal(3);
+                info.doc_count.should.equal(3);
                 done();
               });
             });
@@ -960,7 +960,6 @@ adapters.forEach(function (adapters) {
         });
       });
     });
-
 
     it('Replication with deleted doc', function (done) {
       var db = new PouchDB(dbs.name);
@@ -2375,6 +2374,115 @@ adapters.forEach(function (adapters) {
       });
       remote.put({}, 'gazaa');
     });
+
+    if (adapters[1] === 'http') {
+      // test validate_doc_update, which is a reasonable substitute
+      // for testing design doc replication of non-admin users, since we
+      // always test in admin party
+
+      it('#2268 don\'t stop replication if single forbidden', function () {
+        var ddoc = {
+          "_id": "_design/validate",
+          "validate_doc_update": function (newDoc) {
+            if (newDoc.foo === undefined) {
+              throw {forbidden: 'Document must have a foo.'};
+            }
+          }.toString()
+        };
+
+        var remote = new PouchDB(dbs.remote);
+        var db = new PouchDB(dbs.name);
+
+        return remote.put(ddoc).then(function () {
+          var docs = [{foo: 'bar'}, {foo: 'baz'}, {}, {foo: 'quux'}];
+          return db.bulkDocs({docs: docs});
+        }).then(function () {
+          return db.replicate.to(dbs.remote);
+        }).then(function (res) {
+          res.ok.should.equal(true);
+          res.docs_read.should.equal(4);
+          res.docs_written.should.equal(3);
+          res.doc_write_failures.should.equal(1);
+          res.errors.should.have.length(1);
+
+          return remote.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(4); // 3 plus the validate doc
+          return db.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(4); // 3 plus the invalid doc
+        });
+      });
+
+      it('#2268 don\'t stop replication if single unauthorized', function () {
+        var ddoc = {
+          "_id": "_design/validate",
+          "validate_doc_update": function (newDoc) {
+            if (newDoc.foo === undefined) {
+              throw {unauthorized: 'Document must have a foo.'};
+            }
+          }.toString()
+        };
+
+        var remote = new PouchDB(dbs.remote);
+        var db = new PouchDB(dbs.name);
+
+        return remote.put(ddoc).then(function () {
+          var docs = [{foo: 'bar'}, {foo: 'baz'}, {}, {foo: 'quux'}];
+          return db.bulkDocs({docs: docs});
+        }).then(function () {
+          return db.replicate.to(dbs.remote);
+        }).then(function (res) {
+          res.ok.should.equal(true);
+          res.docs_read.should.equal(4);
+          res.docs_written.should.equal(3);
+          res.doc_write_failures.should.equal(1);
+          res.errors.should.have.length(1);
+
+          return remote.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(4); // 3 plus the validate doc
+          return db.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(4); // 3 plus the invalid doc
+        });
+      });
+
+      it('#2268 don\'t stop replication if many unauthorized', function () {
+        var ddoc = {
+          "_id": "_design/validate",
+          "validate_doc_update": function (newDoc) {
+            if (newDoc.foo === undefined) {
+              throw {unauthorized: 'Document must have a foo.'};
+            }
+          }.toString()
+        };
+
+        var remote = new PouchDB(dbs.remote);
+        var db = new PouchDB(dbs.name);
+
+        return remote.put(ddoc).then(function () {
+          var docs = [{foo: 'bar'}, {foo: 'baz'}, {}, {foo: 'quux'}, {}, {},
+            {foo: 'toto'}, {}];
+          return db.bulkDocs({docs: docs});
+        }).then(function () {
+          return db.replicate.to(dbs.remote);
+        }).then(function (res) {
+          res.ok.should.equal(true);
+          res.docs_read.should.equal(8);
+          res.docs_written.should.equal(4);
+          res.doc_write_failures.should.equal(4);
+          res.errors.should.have.length(4);
+
+          return remote.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(5); // 4 plus the validate doc
+          return db.allDocs({limit: 0});
+        }).then(function (res) {
+          res.total_rows.should.equal(8); // 4 valid and 4 invalid
+        });
+      });
+    }
   });
 });
 
